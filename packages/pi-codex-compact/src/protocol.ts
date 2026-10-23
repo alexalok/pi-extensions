@@ -314,13 +314,21 @@ export function rewriteCheckpointMarker(
     );
   }
   const index = matches[0];
+  const replacement = structuredClone([...replacementHistory]);
+  const checkpointIndex = replacement.findIndex(isCompactionItem);
+  const prefix: unknown[] = [];
+  const declarations: unknown[] = [];
+  for (const item of payload.input.slice(0, index)) {
+    if (checkpointIndex >= 0 && isObject(item) && item.type === "additional_tools") declarations.push(item);
+    else prefix.push(item);
+  }
+  // A checkpoint can hide preceding inline tool declarations. Restore the provider's
+  // exact batches immediately after it, before any saved output. Leave later tool
+  // updates anchored; this deterministic replay becomes the new prefix baseline.
+  replacement.splice(checkpointIndex + 1, 0, ...declarations);
   return {
     ...payload,
-    input: [
-      ...payload.input.slice(0, index),
-      ...structuredClone(replacementHistory),
-      ...payload.input.slice(index + 1),
-    ],
+    input: [...prefix, ...replacement, ...payload.input.slice(index + 1)],
   };
 }
 
