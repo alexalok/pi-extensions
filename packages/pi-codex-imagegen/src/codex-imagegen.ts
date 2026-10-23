@@ -118,7 +118,7 @@ export function createImagegenExtension(overrides: Partial<Dependencies> = {}) {
       signal?.throwIfAborted();
       if (!isCurrent(state)) throw new DOMException("Image generation session changed", "AbortError");
       if (tool && !state.store.settings.toolEnabled)
-        throw new Error("codex_imagegen is disabled. Enable it in /imagegen Settings.");
+        throw new Error("codex_imagegen is disabled. Enable it in /codex-imagegen Settings.");
     };
 
     const generate = (
@@ -307,13 +307,13 @@ export function createImagegenExtension(overrides: Partial<Dependencies> = {}) {
       if (state) await dispose(state);
     });
 
-    pi.registerCommand("imagegen", {
+    pi.registerCommand("codex-imagegen", {
       description: "Generate images and manage experimental Codex image settings",
       handler: async (args, ctx) => {
-        if (args.trim()) throw new Error("/imagegen accepts no arguments. Open its menu without arguments.");
+        if (args.trim()) throw new Error("/codex-imagegen accepts no arguments. Open its menu without arguments.");
         if (ctx.mode !== "tui") {
           const message =
-            "/imagegen requires TUI mode. Edit pi-codex-imagegen.json manually; the enabled codex_imagegen tool also works headlessly.";
+            "/codex-imagegen requires TUI mode. Edit pi-codex-imagegen.json manually; the enabled codex_imagegen tool also works headlessly.";
           if (ctx.hasUI) {
             ctx.ui.notify(message, "warning");
             return;
@@ -322,7 +322,7 @@ export function createImagegenExtension(overrides: Partial<Dependencies> = {}) {
         }
         const state = requireState(ctx);
         if (!ctx.isIdle() || state.busy || state.menuOpen)
-          throw new Error("Wait for the current operation before opening /imagegen.");
+          throw new Error("Wait for the current operation before opening /codex-imagegen.");
         state.menuOpen = true;
         const releaseOwnership = retainOwnership(state);
         try {

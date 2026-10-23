@@ -26,7 +26,7 @@ For loading, use a controlled non-interactive subprocess with a temporary Pi age
 pi --mode rpc --no-extensions -e ./packages/pi-codex-imagegen
 ```
 
-The harness must establish RPC readiness, check `/imagegen` rejection, reload settings, and shut down cleanly. It must not send an ordinary model prompt or attempt generation. The source package has no required generated runtime build.
+The harness must establish RPC readiness, check `/codex-imagegen` rejection, reload settings, and shut down cleanly. It must not send an ordinary model prompt or attempt generation. The source package has no required generated runtime build.
 
 ## Account-owner setup
 
@@ -39,7 +39,7 @@ Expected result: Pi owns credential storage and refresh. The extension creates n
 Responsible role: maintainer/account owner. Prerequisites: explicit permission to consume quota, compatible OAuth, network access, and completion of deterministic checks. This procedure is not authorization to spend quota.
 
 1. Load only this extension in a temporary or controlled Pi configuration. Keep `toolEnabled` false initially.
-2. Open `/imagegen` and inspect Status without causing auth refresh or an image request.
+2. Open `/codex-imagegen` and inspect Status without causing auth refresh or an image request.
 3. Choose Generate Image, enter one simple prompt, and submit once. Do not retry automatically.
 4. Confirm that a supported image file exists under the configured output directory, inspect its actual bytes/dimensions, and confirm that the reported path is correct.
 5. With separate authorization for another image, request a transparent background and inspect actual alpha. A checkbox or successful HTTP response is not proof of transparency.
