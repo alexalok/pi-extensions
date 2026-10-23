@@ -314,13 +314,21 @@ export function rewriteCheckpointMarker(
     );
   }
   const index = matches[0];
+  const replacement = structuredClone([...replacementHistory]);
+  const checkpointIndex = replacement.findIndex(isCompactionItem);
+  const prefix = payload.input.slice(0, index);
+  const declarationIndex = prefix.findIndex((item) => isObject(item) && item.type === "additional_tools");
+  // A checkpoint can hide preceding inline tools. Keep their entire context span
+  // together: Pi encodes removals and incremental-update semantics as messages,
+  // so moving only schemas can reverse those updates and re-enable removed tools.
+  // No provider-specific notice parsing; later input stays anchored as before.
+  if (checkpointIndex >= 0 && declarationIndex >= 0) {
+    const toolContext = prefix.splice(declarationIndex);
+    replacement.splice(checkpointIndex + 1, 0, ...toolContext);
+  }
   return {
     ...payload,
-    input: [
-      ...payload.input.slice(0, index),
-      ...structuredClone(replacementHistory),
-      ...payload.input.slice(index + 1),
-    ],
+    input: [...prefix, ...replacement, ...payload.input.slice(index + 1)],
   };
 }
 

@@ -36,7 +36,7 @@ const history = [
   { type: "message", id: "msg_session", role: "assistant", content: [{ type: "output_text", text: "OK" }] },
 ];
 
-test("persisted server checkpoints replay after reload/resume/fork and stop before their branch boundary", async () => {
+test.each(["top-level", "inline"] as const)("restores %s tools across sessions", async (toolMode) => {
   const directory = await mkdtemp(join(tmpdir(), "pi-server-checkpoint-"));
   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = join(directory, "agent");
@@ -102,19 +102,19 @@ test("persisted server checkpoints replay after reload/resume/fork and stop befo
       };
       const marker = projected.messages[0].content;
       assert.ok(Array.isArray(marker));
+      const tools = [{ type: "function", name: "read" }];
+      const inline = toolMode === "inline" ? [{ type: "additional_tools", role: "developer", tools }] : [];
+      const later = { role: "user", content: [{ type: "input_text", text: "later question" }] };
       const payload = {
         instructions: "stable system",
-        tools: [{ type: "function", name: "read" }],
-        input: [
-          { role: "user", content: [{ type: "input_text", text: marker[0].text }] },
-          { role: "user", content: [{ type: "input_text", text: "later question" }] },
-        ],
+        tools: toolMode === "top-level" ? tools : [{ type: "web_search" }],
+        input: [...inline, { role: "user", content: [{ type: "input_text", text: marker[0].text }] }, later],
       };
       const replayed = (await mock.events.get("before_provider_request")?.[0]?.(
         { type: "before_provider_request", payload },
         ctx,
       )) as typeof payload;
-      assert.deepEqual(replayed.input, [...history, payload.input[1]]);
+      assert.deepEqual(replayed.input, [history[0], ...inline, ...history.slice(1), later]);
       assert.equal(replayed.instructions, payload.instructions);
       assert.deepEqual(replayed.tools, payload.tools);
       assert.doesNotMatch(JSON.stringify(replayed), /old user history|old assistant-only fact|PI_CONTEXT_COMPACTION/);

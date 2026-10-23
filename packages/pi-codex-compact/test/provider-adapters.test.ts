@@ -6,9 +6,12 @@ import {
   type Model,
   normalizeContext,
   type Provider,
+  type SystemMessage,
+  Type,
   type Usage,
 } from "@earendil-works/pi-ai";
 import { describe, test } from "vitest";
+import { type JsonObject, rewriteCheckpointMarker } from "../src/protocol.js";
 import { requestRemoteCompaction } from "../src/remote.js";
 
 const PROVIDER_MODULES = {
@@ -164,6 +167,89 @@ function context() {
 
 for (const api of Object.keys(PROVIDER_MODULES) as SupportedApi[]) {
   describe(api, () => {
+    test.each(["add", "remove", "redeclare"])("replays provider %s updates in order", async (update) => {
+      const provider = await providerFor(api);
+      const model = {
+        ...modelFor(api),
+        compat: { supportsMidConvoSystemMessages: true, supportsAdditionalTools: true },
+      };
+      const tool = {
+        name: "bash",
+        description: "Execute a command",
+        parameters: Type.Object({ command: Type.String() }),
+      };
+      const updates: SystemMessage[] = [
+        { role: "system", content: "Instructions accompanying the tool", toolsAdded: [tool], timestamp: 1 },
+      ];
+      if (update !== "add")
+        updates.push({ role: "system", content: "Tool disabled", toolsRemoved: [{ name: "bash" }], timestamp: 2 });
+      if (update === "redeclare")
+        updates.push({ role: "system", content: "Tool restored", toolsAdded: [tool], timestamp: 3 });
+      let serialized: JsonObject | undefined;
+      let replayed: JsonObject | undefined;
+      const stream = provider.stream(
+        model,
+        normalizeContext({
+          systemPrompt: "Stable instructions",
+          messages: [
+            ...updates,
+            { role: "user", content: "checkpoint marker", timestamp: 4 },
+            { role: "user", content: "Run the next command", timestamp: 5 },
+          ],
+        }),
+        {
+          apiKey: apiKey(api),
+          transport: "sse",
+          cacheRetention: "none",
+          maxRetries: 0,
+          onPayload(value) {
+            serialized = structuredClone(value) as JsonObject;
+            return rewriteCheckpointMarker(value, "checkpoint marker", [COMPACTION_ITEM]);
+          },
+          fetch: async (_input, init) => {
+            const body = init?.body;
+            replayed = JSON.parse(
+              typeof body === "string" ? body : zlib.zstdDecompressSync(body as Uint8Array).toString("utf8"),
+            );
+            return responseSse([]);
+          },
+        },
+      );
+      await collectDone(stream);
+      assert.ok(serialized && replayed);
+      const originalInput = serialized.input as JsonObject[];
+      const input = replayed.input as JsonObject[];
+      const additions = originalInput.filter((item) => item.type === "additional_tools");
+      if (update === "add") {
+        assert.equal(additions.length, 1, "the installed provider emits an inline declaration");
+        assert.match(JSON.stringify(additions), /"name":"bash"/);
+      } else if (additions.length === 0) {
+        // Older Pi adapters fold non-additive updates into the top-level tool set.
+        assert.deepEqual(
+          ((serialized.tools ?? []) as JsonObject[]).map((tool) => tool.name),
+          update === "remove" ? [] : ["bash"],
+        );
+      }
+      const checkpointIndex = input.findIndex((item) => item.type === "compaction");
+      assert.ok(checkpointIndex >= 0);
+      assert.deepEqual(
+        input.filter((item) => item.type === "additional_tools"),
+        additions,
+      );
+      assert.ok(input.every((item, index) => item.type !== "additional_tools" || index > checkpointIndex));
+      const markerIndex = originalInput.findIndex(
+        (item) => Array.isArray(item.content) && item.content.some((part) => part.text === "checkpoint marker"),
+      );
+      assert.ok(markerIndex >= 0);
+      assert.deepEqual(
+        input.filter((item) => item.type !== "compaction"),
+        originalInput.filter((_item, index) => index !== markerIndex),
+        "all original provider items, including tool instructions and removals, retain their relative order",
+      );
+      assert.deepEqual(replayed.tools, serialized.tools);
+      assert.equal(replayed.instructions, serialized.instructions);
+    });
+
     test("exposes one HTTP Responses request and accepts a V2 compaction-only SSE", async () => {
       const fixture = PROVIDER_MODULES[api];
       const provider = await providerFor(api);
