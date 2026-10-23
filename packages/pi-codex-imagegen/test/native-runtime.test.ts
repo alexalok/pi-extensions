@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -300,7 +300,7 @@ it("keeps the default hidden tool out of declarations, codemode, search, and rea
         parameters: Type.Object({}),
         async execute(_id, _args, _signal, _update, ctx) {
           callable = ctx.tools.map((tool) => tool.name);
-          const outcome = await ctx.executeTool(TOOL, { prompt: "must not run" });
+          const outcome = await ctx.executeTool(TOOL, { prompt: "must not run", path: "must-not-write" });
           nestedError = outcome.isError;
           return { content: outcome.result.content, details: undefined };
         },
@@ -312,11 +312,11 @@ it("keeps the default hidden tool out of declarations, codemode, search, and rea
   expect(f.session.getActiveToolNames()).not.toContain(TOOL);
   expect(f.session.getCallableToolNames()).not.toContain(TOOL);
   f.responses.push([
-    call(TOOL, { prompt: "must not run" }),
+    call(TOOL, { prompt: "must not run", path: "must-not-write" }),
     call("imagegen_orchestrator"),
     call("tool_search", { query: TOOL }),
     call("codemode", {
-      code: `text({listed: ALL_TOOLS.some(t => t.name === "${TOOL}"), described: (await describeTool("${TOOL}")) !== undefined}); try { await tools.${TOOL}({prompt: "must not run"}); } catch { text("call rejected"); }`,
+      code: `text({listed: ALL_TOOLS.some(t => t.name === "${TOOL}"), described: (await describeTool("${TOOL}")) !== undefined}); try { await tools.${TOOL}({prompt: "must not run", path: "must-not-write"}); } catch { text("call rejected"); }`,
     }),
   ]);
   await f.session.prompt("Exercise all hidden image generation entry points.");
@@ -339,7 +339,7 @@ it("keeps the default hidden tool out of declarations, codemode, search, and rea
   await expect(access(join(directory, "pi-codex-imagegen"))).rejects.toThrow();
 });
 
-it("executes the enabled tool headlessly with a non-Codex primary model and saves the original image at the default output", async () => {
+it("executes the enabled tool headlessly with a non-Codex primary model and writes the required exact path", async () => {
   const request = vi.fn<NonNullable<Dependencies["request"]>>(async () => ({
     base64: IMAGE,
     requestId: "synthetic-image-request",
@@ -348,11 +348,11 @@ it("executes the enabled tool headlessly with a non-Codex primary model and save
   expect(f.session.model?.provider).not.toBe("openai-codex");
   expect(await f.runtime.listCredentials()).toEqual([]);
   expect(f.session.getActiveToolNames()).toContain(TOOL);
-  f.responses.push([call(TOOL, { prompt: "A one pixel test image", filename: "synthetic.webp" })]);
+  f.responses.push([call(TOOL, { prompt: "A one pixel test image", path: "assets/synthetic" })]);
   await f.session.prompt("Generate the synthetic image.");
   const result = resultFor(f.session, TOOL);
   expect(result.isError).toBe(false);
-  const path = join(directory, "pi-codex-imagegen", "synthetic.webp");
+  const path = join(directory, "assets", "synthetic");
   expect(await readFile(path)).toEqual(Buffer.from(IMAGE, "base64"));
   expect(result.details).toEqual({
     path,
@@ -365,6 +365,49 @@ it("executes the enabled tool headlessly with a non-Codex primary model and save
   expect(request).toHaveBeenCalledTimes(1);
   expect(request.mock.calls[0]?.[1]).toEqual({ prompt: "A one pixel test image", transparentBackground: false });
   expect(f.captured).toHaveLength(2);
+  expect(f.errors).toEqual([]);
+});
+
+it("rejects missing path in a real SDK tool call without generating an image", async () => {
+  const request = vi.fn<NonNullable<Dependencies["request"]>>(async () => ({ base64: IMAGE }));
+  const f = await fixture({ enabled: true, dependencies: { request } });
+  f.responses.push([call(TOOL, { prompt: "No destination provided" })]);
+  await f.session.prompt("Exercise required destination validation.");
+  expect(resultFor(f.session, TOOL).isError).toBe(true);
+  expect(request).not.toHaveBeenCalled();
+  expect(f.errors).toEqual([]);
+});
+
+it("supports exact paths and overwriting through enabled codemode", async () => {
+  const request = vi.fn<NonNullable<Dependencies["request"]>>(async () => ({ base64: IMAGE }));
+  const f = await fixture({ enabled: true, discovery: true, dependencies: { request } });
+  const path = join(directory, "codemode-image.png");
+  await writeFile(path, "previous image");
+  f.responses.push([
+    call("codemode", {
+      code: `await tools.${TOOL}({prompt: "A synthetic image", path: "codemode-image.png"}); text("saved");`,
+    }),
+  ]);
+  await f.session.prompt("Generate through codemode.");
+  expect(resultFor(f.session, "codemode").isError).toBe(false);
+  expect(await readFile(path)).toEqual(Buffer.from(IMAGE, "base64"));
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(f.errors).toEqual([]);
+});
+
+it("follows a destination symlink through real SDK tool execution", async () => {
+  const request = vi.fn<NonNullable<Dependencies["request"]>>(async () => ({ base64: IMAGE }));
+  const f = await fixture({ enabled: true, dependencies: { request } });
+  const target = join(directory, "outside", "existing");
+  await mkdir(dirname(target));
+  await writeFile(target, "previous file");
+  const path = join(directory, "linked-image");
+  await symlink(target, path);
+  f.responses.push([call(TOOL, { prompt: "An image", path })]);
+  await f.session.prompt("Write the synthetic image through a link.");
+  expect(resultFor(f.session, TOOL).isError).toBe(false);
+  expect(await readFile(target)).toEqual(Buffer.from(IMAGE, "base64"));
+  expect((await lstat(path)).isSymbolicLink()).toBe(true);
   expect(f.errors).toEqual([]);
 });
 
@@ -501,7 +544,7 @@ it.each(["abort-error", "late-success"] as const)(
         },
         menu: async (_ctx, owner) => {
           try {
-            await owner.generate("Held manual image", owner.signal);
+            await owner.generate("Held manual image", "explicit-output/held", owner.signal);
           } catch (error) {
             generationError = error;
           }
@@ -529,7 +572,7 @@ it.each(["abort-error", "late-success"] as const)(
       expect(f.errors).toEqual([]);
       expect(f.captured).toEqual([]);
       // An explicit generation can create its output directory during preflight, but no artifact.
-      expect(await readdir(join(directory, "pi-codex-imagegen"))).toEqual([]);
+      expect(await readdir(join(directory, "explicit-output"))).toEqual([]);
     } finally {
       f.dispose();
       await running;
