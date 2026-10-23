@@ -62,8 +62,8 @@ async function setup(options: { document?: unknown; mode?: ExtensionContext["mod
     for (const handler of mock.events.get(type) ?? []) await handler({ type, reason: "quit" }, target);
   };
   const command = (args = "") => {
-    const registered = mock.commands.get("imagegen");
-    if (!registered) throw new Error("Missing imagegen command");
+    const registered = mock.commands.get("codex-imagegen");
+    if (!registered) throw new Error("Missing codex-imagegen command");
     return registered.handler(args, ctx);
   };
   const tool = () => mock.tools.at(-1) as unknown as ToolDefinition;
@@ -91,9 +91,9 @@ async function setup(options: { document?: unknown; mode?: ExtensionContext["mod
   };
 }
 
-it("registers a hidden tool and one command without resolving auth or creating files", async () => {
+it("registers only /codex-imagegen and a hidden tool without resolving auth or creating files", async () => {
   const h = await setup();
-  expect([...h.commands.keys()]).toEqual(["imagegen"]);
+  expect([...h.commands.keys()]).toEqual(["codex-imagegen"]);
   expect(h.tool().exposure).toBe("hidden");
   expect(h.request).not.toHaveBeenCalled();
   await expect(fs.stat(h.agentDir)).rejects.toMatchObject({ code: "ENOENT" });

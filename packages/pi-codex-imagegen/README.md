@@ -37,13 +37,13 @@ The source entrypoint needs no package build. The repository build prepares the 
 
 ## 🚀 Quick start
 
-Use Pi's `/login` to sign in to the `openai-codex` provider, then open `/imagegen`, choose **Generate Image**, and enter a prompt. The default output is `~/.pi/agent/pi-codex-imagegen/`; the saved path is shown with the result.
+Use Pi's `/login` to sign in to the `openai-codex` provider, then open `/codex-imagegen`, choose **Generate Image**, and enter a prompt. The default output is `~/.pi/agent/pi-codex-imagegen/`; the saved path is shown with the result.
 
 The `openai` provider's login and a login held only by Codex CLI are not substitutes. This extension does not import `~/.codex/auth.json`. Your main Pi model can use another provider. Generation sends the prompt to ChatGPT and can consume account quota.
 
 ## 💬 Commands
 
-`/imagegen` opens the generation manager, user settings, authentication status, and help. It accepts no arguments and requires TUI mode. RPC receives an unsupported-mode notice; print and JSON receive a command error. No generation is started by these rejection paths.
+`/codex-imagegen` opens the generation manager, user settings, authentication status, and help. It accepts no arguments and requires TUI mode. RPC receives an unsupported-mode notice; print and JSON receive a command error. No generation is started by these rejection paths.
 
 The prompt dialog preserves Pi's native multiline editing and paste behavior. External-editor launch is unavailable in this cancellable dialog because Pi's external-editor handoff cannot be aborted when the dialog is disposed.
 
@@ -51,7 +51,7 @@ The prompt dialog preserves Pi's native multiline editing and paste behavior. Ex
 
 `codex_imagegen` generates one image from a prompt. It accepts an optional output basename and transparency override. It returns a path, image content, and structured file details. Image content is handled by Pi's normal tool-result image policy.
 
-The tool is **disabled by default**, including codemode, tool search, and nested calls. Enable it explicitly in `/imagegen` → Settings. The manual menu does not require tool enablement. The enabled tool also works in headless modes.
+The tool is **disabled by default**, including codemode, tool search, and nested calls. Enable it explicitly in `/codex-imagegen` → Settings. The manual menu does not require tool enablement. The enabled tool also works in headless modes.
 
 A supplied filename must be a basename, not a path. Its optional suffix must be `.png`, `.jpg`, `.jpeg`, or `.webp` and match the returned media. Without a suffix, the detected suffix is appended. An omitted filename gets a unique name.
 

@@ -393,7 +393,7 @@ it("preserves normalized provider prefixes within each epoch and unrelated tool 
         });
     },
   });
-  await f.session.prompt("/imagegen");
+  await f.session.prompt("/codex-imagegen");
   const metadata = JSON.parse(JSON.stringify(f.session.getAllTools().filter((tool) => tool.name !== TOOL)));
   const unrelated = f.session.getActiveToolNames();
   expect(unrelated).toEqual(["fixture_zeta", "fixture_alpha"]);
@@ -429,19 +429,19 @@ it("preserves normalized provider prefixes within each epoch and unrelated tool 
 });
 
 it.each(["print", "json", "rpc"] as const)(
-  "rejects the actual /imagegen command safely and observably in %s, including all arguments",
+  "rejects the actual /codex-imagegen command safely and observably in %s, including all arguments",
   async (mode) => {
     const menu = vi.fn<NonNullable<Dependencies["menu"]>>(async () => {});
     const request = vi.fn<NonNullable<Dependencies["request"]>>(async () => ({ base64: IMAGE }));
     const f = await fixture({ mode, dependencies: { menu, request } });
-    await f.session.prompt("/imagegen");
+    await f.session.prompt("/codex-imagegen");
     if (mode === "rpc") {
       expect(f.notify).toHaveBeenCalledWith(expect.stringContaining("requires TUI mode"), "warning");
       expect(f.errors).toEqual([]);
     } else {
       expect(f.errors).toHaveLength(1);
       expect(f.errors[0]).toMatchObject({
-        extensionPath: "command:imagegen",
+        extensionPath: "command:codex-imagegen",
         event: "command",
         error: expect.stringContaining("requires TUI mode"),
       });
@@ -449,9 +449,9 @@ it.each(["print", "json", "rpc"] as const)(
     }
     f.errors.length = 0;
     for (const args of ["help", "generate a cat", "settings", "--help"]) {
-      await f.session.prompt(`/imagegen ${args}`);
+      await f.session.prompt(`/codex-imagegen ${args}`);
       expect(f.errors.at(-1)).toMatchObject({
-        extensionPath: "command:imagegen",
+        extensionPath: "command:codex-imagegen",
         event: "command",
         error: expect.stringContaining("accepts no arguments"),
       });
@@ -508,7 +508,7 @@ it.each(["abort-error", "late-success"] as const)(
         },
       },
     });
-    const running = f.session.prompt("/imagegen");
+    const running = f.session.prompt("/codex-imagegen");
     try {
       const signal = await started.promise;
       expect(signal.aborted).toBe(false);
@@ -556,7 +556,7 @@ it("loads the declared source package through DefaultResourceLoader and runs reg
   expect(imageTool.exposure).toBe("hidden");
   expect(dirname(imageTool.sourceInfo.path)).toBe(resolve("packages/pi-codex-imagegen/src"));
   expect(f.session.getActiveToolNames()).not.toContain(TOOL);
-  await f.session.prompt("/imagegen");
+  await f.session.prompt("/codex-imagegen");
   expect(f.errors).toHaveLength(1);
   expect(f.errors[0]?.error).toContain("requires TUI mode");
   expect(f.captured).toEqual([]);
