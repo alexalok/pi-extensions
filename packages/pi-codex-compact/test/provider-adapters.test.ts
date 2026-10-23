@@ -6,6 +6,7 @@ import {
   type Model,
   normalizeContext,
   type Provider,
+  type SystemMessage,
   Type,
   type Usage,
 } from "@earendil-works/pi-ai";
@@ -166,12 +167,24 @@ function context() {
 
 for (const api of Object.keys(PROVIDER_MODULES) as SupportedApi[]) {
   describe(api, () => {
-    test("replays provider-serialized inline tool definitions after the opaque checkpoint", async () => {
+    test.each(["add", "remove", "redeclare"])("replays provider %s updates in order", async (update) => {
       const provider = await providerFor(api);
       const model = {
         ...modelFor(api),
         compat: { supportsMidConvoSystemMessages: true, supportsAdditionalTools: true },
       };
+      const tool = {
+        name: "bash",
+        description: "Execute a command",
+        parameters: Type.Object({ command: Type.String() }),
+      };
+      const updates: SystemMessage[] = [
+        { role: "system", content: "Instructions accompanying the tool", toolsAdded: [tool], timestamp: 1 },
+      ];
+      if (update !== "add")
+        updates.push({ role: "system", content: "Tool disabled", toolsRemoved: [{ name: "bash" }], timestamp: 2 });
+      if (update === "redeclare")
+        updates.push({ role: "system", content: "Tool restored", toolsAdded: [tool], timestamp: 3 });
       let serialized: JsonObject | undefined;
       let replayed: JsonObject | undefined;
       const stream = provider.stream(
@@ -179,16 +192,9 @@ for (const api of Object.keys(PROVIDER_MODULES) as SupportedApi[]) {
         normalizeContext({
           systemPrompt: "Stable instructions",
           messages: [
-            {
-              role: "system",
-              content: "",
-              toolsAdded: [
-                { name: "bash", description: "Execute a command", parameters: Type.Object({ command: Type.String() }) },
-              ],
-              timestamp: 1,
-            },
-            { role: "user", content: "checkpoint marker", timestamp: 2 },
-            { role: "user", content: "Run the next command", timestamp: 3 },
+            ...updates,
+            { role: "user", content: "checkpoint marker", timestamp: 4 },
+            { role: "user", content: "Run the next command", timestamp: 5 },
           ],
         }),
         {
@@ -214,12 +220,32 @@ for (const api of Object.keys(PROVIDER_MODULES) as SupportedApi[]) {
       const originalInput = serialized.input as JsonObject[];
       const input = replayed.input as JsonObject[];
       const additions = originalInput.filter((item) => item.type === "additional_tools");
-      assert.equal(additions.length, 1, "the installed provider emits an inline declaration");
-      assert.match(JSON.stringify(additions), /"name":"bash"/);
+      if (update === "add") {
+        assert.equal(additions.length, 1, "the installed provider emits an inline declaration");
+        assert.match(JSON.stringify(additions), /"name":"bash"/);
+      } else if (additions.length === 0) {
+        // Older Pi adapters fold non-additive updates into the top-level tool set.
+        assert.deepEqual(
+          ((serialized.tools ?? []) as JsonObject[]).map((tool) => tool.name),
+          update === "remove" ? [] : ["bash"],
+        );
+      }
       const checkpointIndex = input.findIndex((item) => item.type === "compaction");
       assert.ok(checkpointIndex >= 0);
-      assert.deepEqual(input.slice(checkpointIndex + 1, checkpointIndex + 2), additions);
-      assert.equal(input.filter((item) => item.type === "additional_tools").length, 1);
+      assert.deepEqual(
+        input.filter((item) => item.type === "additional_tools"),
+        additions,
+      );
+      assert.ok(input.every((item, index) => item.type !== "additional_tools" || index > checkpointIndex));
+      const markerIndex = originalInput.findIndex(
+        (item) => Array.isArray(item.content) && item.content.some((part) => part.text === "checkpoint marker"),
+      );
+      assert.ok(markerIndex >= 0);
+      assert.deepEqual(
+        input.filter((item) => item.type !== "compaction"),
+        originalInput.filter((_item, index) => index !== markerIndex),
+        "all original provider items, including tool instructions and removals, retain their relative order",
+      );
       assert.deepEqual(replayed.tools, serialized.tools);
       assert.equal(replayed.instructions, serialized.instructions);
     });

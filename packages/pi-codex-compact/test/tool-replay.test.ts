@@ -12,6 +12,15 @@ const handoff = {
   role: "assistant",
   content: [{ type: "output_text", text: "Next: inspect pending changes." }],
 };
+const removal = {
+  role: "developer",
+  content: "The following tools are no longer available. Do not call them:\n- bash",
+};
+const incremental = {
+  role: "developer",
+  content:
+    "This is an incremental tools update. Previously declared tools remain available unless explicitly marked unavailable. A tool declared again here is available again, and its latest definition replaces the earlier one.",
+};
 const declarations = {
   type: "additional_tools",
   role: "developer",
@@ -58,9 +67,9 @@ for (const [protocol, history] of [
       assert.deepEqual(rewritten, {
         ...payload,
         input: [
-          instructions,
           ...history.slice(0, index + 1),
           declarations,
+          instructions,
           redefinition,
           ...history.slice(index + 1),
           ...suffix,
@@ -78,6 +87,36 @@ for (const [protocol, history] of [
       );
     },
   );
+
+  const redeclaration = { ...declarations, tools: [declarations.tools[0]] };
+  for (const [label, updates] of [
+    ["removal", [removal]],
+    ["combined prompt and removal", [{ role: "system", content: `Updated instructions\n\n${removal.content}` }]],
+    ["removal then redeclaration", [removal, incremental, redeclaration]],
+    ["redeclaration then removal", [incremental, redeclaration, removal]],
+  ] as const) {
+    test(`${protocol} keeps pre-marker ${label} ordered with its tool declarations`, () => {
+      const initial = { role: "developer", content: "Instructions before the first tool declaration" };
+      const payload = { input: [initial, declarations, ...updates, markerItem, retained] };
+      const original = structuredClone(payload);
+      const index = history.indexOf(checkpoint);
+      const expected = [
+        initial,
+        ...history.slice(0, index + 1),
+        declarations,
+        ...updates,
+        ...history.slice(index + 1),
+        retained,
+      ];
+      assert.deepEqual(rewriteCheckpointMarker(payload, marker, history).input, expected);
+      assert.deepEqual(payload, original);
+      const later = { role: "user", content: [{ type: "input_text", text: "Next turn" }] };
+      assert.deepEqual(rewriteCheckpointMarker({ input: [...payload.input, later] }, marker, history).input, [
+        ...expected,
+        later,
+      ]);
+    });
+  }
 }
 
 test("already post-checkpoint declarations stay anchored and top-level tools remain untouched", () => {
